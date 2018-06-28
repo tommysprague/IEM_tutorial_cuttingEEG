@@ -4,8 +4,8 @@
 % basics of IEM method w/ simpler fMRI data)
 
 % where is the EEG data saved?
-eeg_root = '/Volumes/data/FosterEtAl2016/Data';
-subj_num = 10; % 3 extremely smooth; 8 is good, 10 good (delayed onset) - 10 is significant.. (750:1250)
+%eeg_root = '/Volumes/data/FosterEtAl2016/Data';
+%subj_num = 10; % 3 extremely smooth; 8 is good, 10 good (delayed onset) - 10 is significant.. (750:1250)
 
 
 % a few 'global' variables
@@ -16,7 +16,9 @@ eeg_sampling_rate = 250; % recorded eeg data at 250 Hz
 
 
 %% first - load data
-load(sprintf('%s/%02.f_WM_EEG.mat',eeg_root,subj_num));
+%load(sprintf('%s/%02.f_WM_EEG.mat',eeg_root,subj_num));
+addpath util/;
+load data/EEG_advanced.mat;
 
 % <document data>
 
