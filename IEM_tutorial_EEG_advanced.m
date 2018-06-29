@@ -1,6 +1,10 @@
 % IEM_tutorial_EEG_advanced.m
 %
-% Now that you've spent some time learning the basics of how to run an IEM
+% Presented at cuttingEEG 2018 in Paris, France
+% Tommy Sprague (tommy.sprague@gmail.com)
+% Asst Prof, Dept Psychological & Brain Sciences, UC Santa Barbara
+%
+% Now that you've spent some time learning the fundamentals of how to run an IEM
 % analysis on a small set of data, let's explore some more advanced aspects
 % of the analysis you'll need to understand if you want to run an IEM-based
 % experiment yourself.
@@ -43,11 +47,23 @@
 %   data. This is an important step to ensure any structure in the data is
 %   not due to chance. We'll discuss these procedures at the group level as
 %   well.
-
-
-% where is the EEG data saved?
-%eeg_root = '/Volumes/data/FosterEtAl2016/Data';
-%subj_num = 10; % 3 extremely smooth; 8 is good, 10 good (delayed onset) - 10 is significant.. (750:1250)
+%
+% Feel free to share this tutorial and the data associated with it (which
+% comes from the OSF repositiory for Expt 1 of Foster et al, 2016:
+% https://osf.io/q6sxh/). If you found it helpful, it can never hurt to
+% cite either the GitHub repsository (TODO), and/or our recent commentary
+% on these methods (Sprague et al, 2018, eNeuro:
+% http://www.eneuro.org/content/5/3/ENEURO.0098-18.2018)
+%
+% If you have any questions, concerns, ideas, or want advice on these
+% methods, I'm always available and happy to help - tommy.sprague@gmail.com
+%
+% And stay tuned to my github (github.com/tommysprague) - I'm planning on
+% building a set of IEM utilities to help make some common procedures
+% quicker/easier to implement. This will *not* be a toolbox, as I believe
+% it's important to understand the steps of your analyses at a deep level -
+% but it will provide recipes and outlines for common analyses (similar to
+% below), at both the individual subj and group level. 
 
 
 % a few 'global' variables
@@ -65,11 +81,11 @@ load data/EEG_advanced.mat;
 % <document data>
 
 
-% let's look at the 'raw' data - pick a channel (XXX) and sort trials by
+% let's look at the 'raw' data - pick a channel and sort trials by
 % position bin and plot ERP; look at mean delay period potential vs
 % position bin
 
-elec_to_plot = 7;  % subj 8: elec_to_plot = 7
+elec_to_plot = 7;  % which electrode? see chan_labels
 delay_window = [750 1250]; % for delay-period comparisons, which tpts?
 delay_tpts = tpts >= delay_window(1) & tpts <=delay_window(2); % which tpts we'll use for 'delay' analyses
 
@@ -86,6 +102,7 @@ xlim(twindow);
 xlabel('Time (ms)');
 ylabel('Potential (\muV)');
 title(sprintf('Electrode %s',chan_labels{elec_to_plot}));
+set(gca,'TickDir','out','FontSize',14);
 
 subplot(1,2,2);
 hold on; plot(pbins,tmp_mu,'k-');
@@ -97,10 +114,33 @@ xlabel('Position bin (center, \circ)');
 ylabel('Mean delay potential (\muV)');
 title(sprintf('%i to %i ms',delay_window(1),delay_window(2)));
 xlim([-45 360]);
+set(gca,'TickDir','out','FontSize',14);
+
+% Try looking at a few electrodes to see if you can get a sense for the
+% stability of the delay-period potential as a function of stimulus
+% position. Note that there was only one stimulus in this task, so there's
+% not likely to be a strong CDA component. 
+
+
+
 
 %% filter EEG data
 
-% set up our filter properties
+% Based on our quick look at a few example electrodes, it doesn't seem
+% promising to use 'raw' EEG data (though, if you like, feel free to try it
+% below!). We do know that the spatial distribution of alpha (8-12 Hz)
+% power on the scalp reflects changes in locus of spatial attention - so it
+% was deemed a good candidate band for looking at spatial WM
+% representations as well (see Foster et al, 2016 for analyses of other
+% bands as well; or play w/ the filter properties below).
+
+% set up our filter properties - we're going to use the simple 'filter,
+% then Hilbert' method to get timecourses of power at a given frequency
+% band. Wavelets, etc, work equivalently well. In my experience, power is
+% all that matters - though using the real & imag parts of Fourier/wavelet
+% coefficients can also be useful (as [real(coeffs) imag(coeffs)] ). 
+% I'd stay away from cicular quantities like angle(coeffs) though.
+
 
 filt_band = [8 12]; % filter from 8-12 Hz
 
@@ -120,31 +160,38 @@ for cc = 1:size(dt_all,2)
     df_all(:,cc,:)  = abs(hilbert(eegfilt(squeeze(dt_all(:,cc,:)),eeg_sampling_rate,filt_band(1,1),filt_band(1,2)).').').^2; % instantaneous power calculated here for induced activity.
 end
 
-%% inspect filtered data!
+%% inspect filtered data
 
 % let's look at an example trial, channel:
-tnum = 51; chnum = 5;
+tnum = 51; chnum = 7;
 figure;
 hold on;
 % plot raw signal
-plot(tpts,squeeze(dt_all(tnum,chnum,:)));
+plot(tpts,squeeze(dt_all(tnum,chnum,:)),'LineWidth',1);
+
+xlabel('Time (ms)');
+ylabel('Signal'); 
+title(sprintf('Trial %i, Channel %s',tnum,chan_labels{chnum}));
+set(gca,'TickDir','out','FontSize',14);
+
 % plot band-pass signal
-plot(tpts,squeeze(dbp_all(tnum,chnum,:)));
+plot(tpts,squeeze(dbp_all(tnum,chnum,:)),'LineWidth',1);
 % plot abs(Hilbert-transform) - envelope
-plot(tpts,squeeze(df_all(tnum,chnum,:)).^0.5);
+plot(tpts,squeeze(df_all(tnum,chnum,:)).^0.5,'LineWidth',1);
 % plot power from Hilbert
-plot(tpts,squeeze(df_all(tnum,chnum,:)));
+plot(tpts,squeeze(df_all(tnum,chnum,:)),'LineWidth',1);
 
-title(sprintf('Trial %i, Channel %i',tnum,chnum));
-legend({'Raw','Filtered','Envelope','Power'});
+legend({'Raw (\muV)','Filtered (\muV)','Envelope (\muV)','Power (\muV^2)'});
 
+
+%% Sort filtered data by position
 
 % Similar to above, let's look at the same channel sorted by position
 figure; subplot(1,2,1); hold on;
 tmp_mu = nan(length(pu),1); tmp_std = nan(length(pu),1);
 for pp = 1:length(pu)
     thisidx = c_all(:,2)==pu(pp) & ~excl_all; % which trials we average
-    plot(tpts,squeeze(mean(df_all(thisidx,elec_to_plot,:),1)),'Color',pos_colors(pp,:));
+    plot(tpts,squeeze(mean(df_all(thisidx,elec_to_plot,:),1)),'Color',pos_colors(pp,:),'LineWidth',1);
     tmp_mu(pp) = mean(mean(df_all(thisidx,elec_to_plot,tpts>=delay_window(1)&tpts<=delay_window(2)),3),1);
     tmp_std(pp) = std(mean(df_all(thisidx,elec_to_plot,tpts>=delay_window(1)&tpts<=delay_window(2)),3),[],1);
 end
@@ -152,6 +199,7 @@ xlim(twindow);
 xlabel('Time (ms)');
 ylabel(sprintf('%i to %i Hz power (\\muV^2)',filt_band(1),filt_band(2)));
 title(sprintf('Electrode %s',chan_labels{elec_to_plot}));
+set(gca,'TickDir','out','FontSize',14);
 
 subplot(1,2,2);
 hold on; plot(pbins,tmp_mu,'k-');
@@ -162,6 +210,7 @@ end
 xlabel('Position bin (center, \circ)');
 ylabel('Mean delay power (\muV^2)');
 title(sprintf('%i to %i ms',delay_window(1),delay_window(2)));
+set(gca,'TickDir','out','FontSize',14);
 xlim([-45 360]);
 
 % What can we deduce from comparing the alpha-filtered delay-period
@@ -169,7 +218,7 @@ xlim([-45 360]);
 % - try changing which electrodes, delay periods you plot
 
 
-%% Build spatial IEM (same as in fMRI dataset!)
+%% Step 1: Build spatial IEM (same as in fundamentals tutorial!)
 %
 % Motivated by the spatial sensitivity of delay-period alpha responses in
 % many electrodes, let's build a spatial IEM, which projects alpha activity
@@ -190,27 +239,47 @@ xlim([-45 360]);
 %   position bin in the training set, and shuffle this a few times to be
 %   sure results don't come from accidental trial groupings
 %
-% - training on 'average' delay period alpha, then test on each timepoint?
-%   (etc)
+% - training on 'average' delay period alpha, then test on each timepoint
 
 
+% this will proceed just like the 'fundamentals' tutorial - so let's first
+% define the properties of our basis set:
 
 n_chan = 8; % # of channels, evenly spaced around the screen
 chan_centers = linspace(360/n_chan,360,n_chan);
 
+chan_width = 180; % default value - try making wider/thinner
+
 % evaluate basis set at these
 angs = linspace(-179,180,360);
 
-% TODO: replace!!!!
-myb_orig = build_basis_polar_mat(angs,chan_centers);
 
+% I moved the code used to create channel profiles into a separate
+% function: build_basis_polar_mat (in util/). It also automatically changes
+% the power the channels are raised to based on the number of channels,
+% unless you specify your own (typically 8). This has roots in some old
+% papers (Freeman & Adelson, 1992) which describe properties of 'steerable
+% filters'. I can say that the particulars of the channel shape matter, in
+% practice, very very little. There are math reasons you may want to use
+% steerable filters, but the logic there makes less sense for EEG
+% experiments than fMRI or single-unit, and is a bit beyond the scope of
+% this tutorial. 
+myb_orig = build_basis_polar_mat(angs,chan_centers,chan_width);
+
+% now let's look at the basis set:
 figure; plot(angs,myb_orig,'LineWidth',1.5);
 xlabel('Polar angle (\circ)');ylabel('Channel sensitivity'); title('Basis set (information channels)');
-xlim([-180 180]);set(gca,'XTick',-180:90:180,'TickDir','out','Box','off');
+xlim([-180 180]);set(gca,'XTick',-180:90:180,'TickDir','out','Box','off','FontSize',14);
 
 
-% and, using our c_all variable, which contains the exact angle viewed on
-% each trial, predict channel responses
+%% Step 2: Use basis set to predict channel responses
+
+% just like in the 'fundamentals' tutorial, now we need to use our
+% condition labels on each trial to predict channel responses, given the
+% channel sensitivity profiles defined by our basis set (above). 
+
+% Use our c_all variable, which contains the exact angle viewed on
+% each trial to predict channel responses
 %
 % start by making a matrix n_trials x 360, with 1's and 0's, which we can
 % multiply by our basis_set (b_orig) to generate predicted channel
@@ -243,7 +312,7 @@ X_all = stim_mask * myb_orig;
 % let's check out the predicted channel responses:
 figure; 
 % first, a single trial
-whichtrial_C = 150; 
+whichtrial_C = 125; 
 subplot(1,2,1);
 hold on;  chan_colors = lines(n_chan);
 plot(chan_centers,X_all(whichtrial_C,:),'k-','LineWidth',1.5);
@@ -254,7 +323,7 @@ plot([1 1]*mod(c_all(whichtrial_C),360),[0 1],'k--','LineWidth',2);
 xlabel('Channel center (\circ)');
 ylabel('Predicted channel response');
 title(sprintf('Trial %i: %i\\circ',whichtrial_C,c_all(whichtrial_C,1)));
-set(gca,'TickDir','out','XTick',0:90:360);
+set(gca,'TickDir','out','XTick',0:90:360,'FontSize',14);
 
 
 % all trials
@@ -264,18 +333,27 @@ plot([0 360],whichtrial_C+[-0.5 0.5],'r-');
 xlim([22.5 360+22.5]);ylim([0.5 size(c_all,1)+0.5]);
 xlabel('Channel center (\circ)');
 ylabel('Trial');
+
+% put the rank of the design matrix (X_all) in the title
 title(sprintf('All trials (rank = %i)',rank(X_all)));
-set(gca,'TickDir','out','XTick',0:90:360);
+set(gca,'TickDir','out','XTick',0:90:360,'FontSize',14);
 
 
 %% Train/test IEM (full delay period) - leave-one-run-out
 % 
 % With our encoding model and predicted channel responses in hand, now we
 % can estimate channel weights and reconstruct WM representations from each
-% channel. Since we only have one task here, we'll also perform
+% channel. In the fundamentals tutorial, we just split data in half and
+% trained using one half and tested with the other. But that of course left
+% half the data non-reconstructed! Here we implement a n-fold
+% cross-validation procedure (common in decoding analyses) in which we
+% split the data into n parts, loop over the parts and hold one part out as
+% a 'test' set and use the remaining data as a test set. For simplicity,
+% we'll use the run number as the partition. 
+%
+%Since we only have one task here, we'll also perform
 % leave-one-run-out cross-validation (to start with). We'll also explore a
-% couple of other options for training/testing IEMs (including that used by
-% Foster et al, 2016)
+% couple of other options for training/testing IEMs
 
 chan_resp = nan(size(X_all)); % fill this in with estimated channel responses
 
@@ -286,25 +364,36 @@ IEM_delay_tpts = tpts >= IEM_delay(1) & tpts <= IEM_delay(2);
 % etc)
 delay_data = mean(df_all(:,:,IEM_delay_tpts),3);
 
+% variable used for cross-validation:
 % since we're doing leave-one-run-out (LORO), we'll use the run label to
 % sort trials into training/testing sets
-ru = unique(r_all);
-for rr = 1:length(ru)
-    trnidx = r_all~=ru(rr) & ~excl_all; % train using all 'included' trials except testing run
-    tstidx = r_all==ru(rr); % for now, reconstruct with all trials (can drop excluded trials later)
+cv_all = r_all; % NOTE: try other schemes, like: cv_all = ceil(rand(size(r_all))*n_folds); (below)
+
+%cv_all = ceil(rand(size(r_all))*20);  % try this one too! change the
+%number to change the # of folds
+cv_folds = length(unique(cv_all));
+
+cvu = unique(cv_all);
+for rr = 1:length(cvu)
+    trnidx = cv_all~=cvu(rr) & ~excl_all; % train using all 'included' trials except testing run
+    tstidx = cv_all==cvu(rr); % for now, reconstruct with all trials (can drop excluded trials later)
     
     trndata = delay_data(trnidx,:);
     tstdata = delay_data(tstidx,:);
     trnX    = X_all(trnidx,:);
     
-    w_hat = trnX \ trndata; % estimate channel weights
+    % estimate channel weights using 'training' data and predicted channel
+    % responses on those trials
+    w_hat = trnX \ trndata; 
     
+    % use estimated channel weights to reconstruct channel responses using
+    % 'test' data
     chan_resp(tstidx,:) = tstdata/w_hat;
     
     clear w_hat trndata trnX tstdata trnidx tstidx;
 end
 
-%% Plot 'raw' reconstructed channel responses
+% Plot 'raw' reconstructed channel responses
 
 % now we have channel responses computed on each trial
 % note that these are 'raw' - different positions will result in different
@@ -319,51 +408,77 @@ for pp = 1:length(pu)
     plot([1 1]*pbin_plot(pu(pp)),[0 1],'--','LineWidth',1.5,'Color',pos_colors(pp,:));
 end
 xlim([22.5 382.5]);
-set(gca,'XTick',0:90:360,'TickDir','out');
+set(gca,'XTick',0:90:360,'TickDir','out','FontSize',14);
 xlabel('Channel center (\circ)');
 ylabel('Reconstructed channel response (a.u.)');
-title(sprintf('Delay-period reconstructions: %i to %i ms',IEM_delay(1),IEM_delay(2)));
+title(sprintf('Delay-period reconstructions: %i to %i ms, %i CV folds',IEM_delay(1),IEM_delay(2),cv_folds));
+
+% This looks pretty good to me! Try other cross-validation schemes if you
+% like. If you switch to the 'randomized' mode, what happens when you split
+% trials into fewer CV folds? More? 
 
 %% Convert channel responses to 'reconstructions'
 % 
+% In the fundamentals tutorial, we stayed in 'channel space' - on each
+% trial, we had one number for each channel. But in this dataset, stimulus
+% positions were chosen from a uniform distribution around the screen. We
+% were potentially hurting ourselves by binning trials based on their
+% approximate position. (that is, trials at 23 deg polar angle were
+% averaged with those at 67 deg polar angle). One way to get around this is
+% to compute a 'reconstruction' using the estimated channel responses
+% (chan_resp) and the channel sensitivity profile (or 'basis set'). By
+% weighting each channel's sensitivity profile by the estimated channel
+% response, we have a smooth function that we can shift more precisely.
+% (you could even render those channel responses at a finer resolution with
+% build_basis_polar_mat if you like!). 
+
 % weight channel profile by channel response on each trial to get a smooth
 % reconstruction, then shift & align all reconstructions together
 
-% there are two ways we can do this (I'll show both)
-
-% 1) circularly shift weighted channel profile to align all trials
+% first, let's weight each basis function by the corresponding channel
+% response. in matlab, we can write this succinctly like:
 recons_raw = chan_resp * myb_orig.';
+
+% recons_raw is n_trials x length(angs) - each row is the reconstruction
+% for a single trial. 
+
+% Now, we need to circularly shift weighted channel profile to align all trials
+
+% make an empty variable to put things in
 recons_aligned = nan(size(recons_raw));
 
-% we want to adjust so that each position is set to 0
+% loop over trials
 for tt = 1:size(c_all,1)
+    % we want to adjust so that each position is set to 0
     shift_by = c_all(tt,1); % if this is +, shift left (so use -1*shift_by)
     recons_aligned(tt,:) = circshift(recons_raw(tt,:),-1*shift_by);
 end
 
-% 2) adjust channel centers so weighted sum is aligned (this is more
-% important for 2d models)
-% TODO
+% NOTE: the above assumes angs is a set of integers, spaced by 1. I'll
+% leave it as an exercise to re-implement this procedure for an arbitrary
+% feature space. there are hints about how to do this in Sprague et al,
+% 2016 (and the code is available online)
 
 
 % plot aligned reconstructions: all indiv trials and average
+% (we're only going to plot non-excluded trials here)
 figure;
 subplot(3,1,[1 2]);
 imagesc(angs,1:sum(~excl_all),recons_aligned(~excl_all,:)); axis ij;
 ylabel('Trial (after exclusion)');
-xlabel('Angle (relative to target, \circ)');
 title('Aligned delay-period reconstructions');
 xlim([-180 180]);
-set(gca,'TickDir','out','XTick',-180:90:180,'Box','off');
+set(gca,'TickDir','out','XTick',-180:90:180,'Box','off','FontSize',14);
 
-subplot(3,1,3); % mean across trials
+% mean across trials
+subplot(3,1,3); 
 hold on;
 plot(angs,mean(recons_aligned(~excl_all,:),1),'k-','LineWidth',2);
 % also plot +- SEM over trials (not best metric, but gives some sense of
 % errorbars)
 plot(angs,mean(recons_aligned(~excl_all,:),1) + [-1;1]*std(recons_aligned(~excl_all,:),[],1)/sqrt(sum(~excl_all)),'k--');
 xlim([-180 180]);
-set(gca,'XTick',-180:90:180,'TickDir','out');
+set(gca,'XTick',-180:90:180,'TickDir','out','FontSize',14);
 xlabel('Angle (relative to target, \circ)');
 ylabel('Reconstructed channel response (a.u.)');
 title('Average over all trials');
@@ -395,10 +510,16 @@ chan_resp_balanced = nan(size(X_all)); % fill this in with estimated channel res
 % that CV fold. Ideally, you'd repeat this procedure 10ish times, drawing a
 % different set of trials each time. See Foster et al, 2016 paper & code
 % for details on this procedure
+%
+% we're using the same cross-validation index defined above
 
-for rr = 1:length(ru)
-    trnidx = r_all~=ru(rr) & ~excl_all; % train using all 'included' trials except testing run
-    tstidx = r_all==ru(rr); % for now, reconstruct with all trials (can drop excluded trials later)
+% to approximate the Foster et al, 2016 analysis, you'd use 3 folds, and
+% then average all trials within a position bin before training. Advanced
+% students may wish to try and implement that here.
+
+for rr = 1:length(cvu)
+    trnidx = cv_all~=cvu(rr) & ~excl_all; % train using all 'included' trials except testing run
+    tstidx = cv_all==cvu(rr); % for now, reconstruct with all trials (can drop excluded trials later)
     
     % look in c_all(:,2) at trnidx for each pos bin, see which has min
     % count
@@ -428,6 +549,8 @@ for rr = 1:length(ru)
     clear w_hat trndata trnX tstdata trnidx tstidx;
 end
 
+% here's all the bookkeeping, etc, associated with re-aligning all trials
+% (again)
 % recenter, etc:
 % 1) circularly shift weighted channel profile to align all trials
 tmp_raw = chan_resp_balanced * myb_orig.';
@@ -443,7 +566,6 @@ clear tmp_raw;
 
 % now plot: we'll re-plot the original chan_resp's, and add the new
 % balanced ones as dashed lines
-% - TODO: try with balanced plotting set too
 
 figure; subplot(3,1,[1 2]);
 hold on;  pbin_plot = pbins; pbin_plot(pbin_plot==0)=360;
@@ -453,17 +575,17 @@ for pp = 1:length(pu)
     plot([1 1]*pbin_plot(pu(pp)),[0 1],'--','LineWidth',1.5,'Color',pos_colors(pp,:));
 end
 xlim([22.5 382.5]);
-set(gca,'XTick',0:90:360,'TickDir','out');
+set(gca,'XTick',0:90:360,'TickDir','out','FontSize',14);
 xlabel('Channel center (\circ)');
 ylabel('Reconstructed channel response (a.u.)');
-title(sprintf('Delay-period reconstructions: %i to %i ms',IEM_delay(1),IEM_delay(2)));
+title(sprintf('Delay-period reconstructions: %i to %i ms, %i CV folds',IEM_delay(1),IEM_delay(2),cv_folds));
 
 % and the average across all trials, aligned, smoothed
 subplot(3,1,3); hold on;
 plot(angs,mean(recons_aligned(~excl_all,:),1),'k-','LineWidth',2);
 plot(angs,mean(recons_aligned_balanced(~excl_all,:),1),'k:','LineWidth',2);
 xlim([-180 180]);
-set(gca,'XTick',-180:90:180,'TickDir','out');
+set(gca,'XTick',-180:90:180,'TickDir','out','FontSize',14);
 xlabel('Angle (relative to target, \circ)');
 ylabel('Reconstructed channel response (a.u.)');
 title('Average over all trials');
@@ -696,9 +818,9 @@ for tt = 1:length(tptidx)
     % we can use this to index into our original data variable: df_all
     this_delay_data = mean(df_all(:,:,this_tpt_idx),3);
     
-    for rr = 1:length(ru)
-        trnidx = r_all~=ru(rr) & ~excl_all; % train using all 'included' trials except testing run
-        tstidx = r_all==ru(rr); % for now, reconstruct with all trials (can drop excluded trials later)
+    for rr = 1:length(cvu)
+        trnidx = r_all~=cvu(rr) & ~excl_all; % train using all 'included' trials except testing run
+        tstidx = r_all==cvu(rr); % for now, reconstruct with all trials (can drop excluded trials later)
         
         trndata = this_delay_data(trnidx,:);
         tstdata = this_delay_data(tstidx,:);
@@ -799,13 +921,13 @@ trn_tpts = tpts >= trn_window(1) & tpts <= trn_window(2); delay_tpts; % from abo
 chan_resp_t_fix = nan(size(c_all,1),n_chan,length(tptidx));
 
 
-for rr = 1:length(ru)
+for rr = 1:length(cvu)
     
     % on every cross-validation fold, train with a single set of exemplars
     % across trials averaged over trn_tpts
 
-    trnidx = r_all~=ru(rr) & ~excl_all; % train using all 'included' trials except testing run
-    tstidx = r_all==ru(rr); % for now, reconstruct with all trials (can drop excluded trials later)
+    trnidx = r_all~=cvu(rr) & ~excl_all; % train using all 'included' trials except testing run
+    tstidx = r_all==cvu(rr); % for now, reconstruct with all trials (can drop excluded trials later)
     
     trndata = mean(df_all(trnidx,:,trn_tpts),3);
     trnX    = X_all(trnidx,:);
@@ -912,9 +1034,9 @@ chan_resp_shuf = nan(size(c_all,1),n_chan,niter); % trials x channels x shufflin
 tmp_raw = nan(size(chan_resp_shuf,1),length(angs),niter);
 for ii = 1:niter
     
-    for rr = 1:length(ru)
-        trnidx = r_all~=ru(rr) & ~excl_all; % train using all 'included' trials except testing run
-        tstidx = r_all==ru(rr); % for now, reconstruct with all trials (can drop excluded trials later)
+    for rr = 1:length(cvu)
+        trnidx = r_all~=cvu(rr) & ~excl_all; % train using all 'included' trials except testing run
+        tstidx = r_all==cvu(rr); % for now, reconstruct with all trials (can drop excluded trials later)
         
         trndata = delay_data(trnidx,:);
         tstdata = delay_data(tstidx,:);
