@@ -1,12 +1,9 @@
 %% IEM Tutorial: fundamentals
-% First, let's go over a first set of basic concepts underlying the IEM method 
-% without all the overhead of processing EEG datasets. I've already set up data 
-% to be simple to use, and this is a high-fidelity fMRI dataset that has quite 
-% robust single-trial decoding performance. For our purposes, the dataset is basically 
-% identical to the EEG datasets we'll be working with later, but this one shoudl 
-% be a bit less cumbersome to deal with when 
+% First, let's go over a first set of basic concepts underlying the IEM method, 
+% ignoring the overhead associated with data processing. I've simplified a dataset 
+% into one number from each measurement (electrode) on each trial.
 % 
-% In this tutorial, we'll learn:
+% In this tutorial, we'll use this dataset to learn:
 % 
 % # how to build a channel-based linear encoding model
 % # how to use that encoding model, together with a behavioral task, to predict 
@@ -17,9 +14,10 @@
 % on a separate set of data
 % # how to think about these reconstructions
 % 
-% We're going to be using a beautiful dataset generously shared online (https://osf.io/bwzfj/) 
-% by Joshua Foster in the Awh/Vogel labs at University of Chicago (https://awhvogellab.com). 
-% This dataset comes from his 2016 _Journal of Neurophysiology_ paper (https://awhvogellab.files.wordpress.com/2015/08/foster-et-al-2016_jneurophysiol.pdf), 
+% The data we're using is a single subject from the beautiful dataset generously 
+% shared online (https://osf.io/bwzfj/) by Joshua Foster in the Awh/Vogel labs 
+% at University of Chicago (https://awhvogellab.com). This dataset comes from 
+% his 2016 _Journal of Neurophysiology_ paper (https://awhvogellab.files.wordpress.com/2015/08/foster-et-al-2016_jneurophysiol.pdf), 
 % in which they recorded EEG while  participants remembered single positions on 
 % the screen over a brief delay interval. Here's a schematic of the task (their 
 % *Fig. 1*):
@@ -41,8 +39,7 @@
 %% Load data
 % I've already minimally-processed this dataset so that we have a measured scalp 
 % activity pattern (alpha) on each trial. We'll cover ways to get this pattern 
-% later on. You can also try loading fMRI_basic.mat - the data is stored exactly 
-% the same way, and the datasets are interchangeable for our analyses here. The 
+% later on. In principle, the data could have been from an fMRI experiment - the 
 % point is that any signal can be a good candidate for this analysis, so long 
 % as some of the assumptions (discussed below) more or less hold. 
 %%
@@ -54,8 +51,8 @@ whos
 %% 
 % in your workspace, you should have:
 % 
-% * *data_all*: one activity pattern on each trial from each measurement (electrode 
-% or voxel) - n_trials x n_measurements
+% * *data_all*: one activity pattern on each trial from each measurement (electrode) 
+% - n_trials x n_measurements
 % * *c_all*: condition label for each trial. first column is the polar angle 
 % remembered on that trial, in degrees (Cartesian coords, 45 = upper right); second 
 % column is the position bin (1-8; beginning at 0 deg and moving CCW, so bin 2 
@@ -66,6 +63,12 @@ whos
 % * *chan_labels* (for EEG): cell array of strings labeling each electrode; 
 % n_electrodes+2 x 1 cell array (we don't include EOG channels in data here)
 % 
+% |filter_band| and |delay_window| tell us the frequencies used for computing 
+% power during the delay period and which timepoints we used, respectively (ms):
+%%
+filter_band
+delay_window
+%% 
 % This is all we need! we'll go over a few suggestions for how to process 
 % EEG data for best use with IEM methods a bit later.
 %% STEP 1: Build encoding model
@@ -74,7 +77,7 @@ whos
 % as a linear combination of a discrete set of modeled 'information channels', 
 % which we sometimes call 'basis functions'. For now, let's think of those information 
 % channels as a set of neural populations - we know, based on decades of vision 
-% science, that neural populations in the visual system are TUNED to particular 
+% science, that neural populations in the visual system are _tuned_ to particular 
 % features. 
 % 
 % What are some examples of these?
@@ -116,12 +119,14 @@ whos
 % the i'th modeled information channel on that trial, and $W_i$ is the _weight 
 % _describing how strongly channel $C_i$ contributes to the electrode in question.
 % 
-% So - let's look at an example 'channel' profile. We'll model this channel 
-% as a function of polar angle, $f\left(\theta \right)$, such that the channel 
-% is maximally sensitive at a particular feature value (polar angle), and insensitive 
-% at far away feature values. A Gaussian could do the trick, but a Gaussian will 
-% never reach 'zero' sensitivity - so instead we use cos functions raised to a 
-% power to make them a bit more gaussian-like:
+% So - let's look at an example 'channel' profile. We want to model a channel 
+% as a linear filter for the relevant feature value (position), similar to a neural 
+% tuning function or receptive field. Since stimuli varied only in their position 
+% around the circle, we'll model this channel as a function of polar angle, $f\left(\theta 
+% \right)$, such that the channel is maximally sensitive at a particular feature 
+% value (polar angle), and insensitive at far away feature values. A Gaussian 
+% could do the trick, but a Gaussian will never reach 'zero' sensitivity - so 
+% instead we use cos functions raised to a power to make them a bit more gaussian-like:
 % 
 % $$f_0 \left(\theta \right)=\cos {\left(\pi \frac{\left(\theta -\theta_0 
 % \right)}{2s}\right)}^7 \;\textrm{where}\;\left|\theta \right|<s,0\;\textrm{otherwise}$$
@@ -130,40 +135,54 @@ whos
 % (s), which can be helpful. But, in practice, using a Gaussian (normalized to 
 % 1) is equally useful. 
 %%
+% define a set of points along which we evaluate the channel function
 angs = linspace(-179,180,360);
-this_chan_center = 0; this_chan_width = 180; 
+
+% define where the channel is centered (deg)
+this_chan_center = 0; 
+
+% define how wide the channel is - how far from its center does it reach 0
+% (it will reach nearly 0 much closer to its center)
+this_chan_width = 180; 
 
 % quick uitility function to compute angular distance (degrees):
 ang_dist = @(a,b) min(mod(a-b,360),mod(b-a,360));
 
 % the above function will make it easy to always compute the distance between two angles, with the max value being 180
 
+% use our equation above to compute the channel sensitivity profile (its filter shape)
 this_basis_fcn = (cosd(180 * ang_dist(angs,this_chan_center) ./ (2*this_chan_width) ).^7) .* (ang_dist(angs,this_chan_center)<=this_chan_width);
+
+% and let's take a look at it:
 plot(angs,this_basis_fcn,'-','LineWidth',1.5);
 xlabel('Polar angle (\theta, \circ)');
 ylabel('Channel sensitivity'); xlim([angs(1) angs(end)])
 title('Modeled neural information channel')
 set(gca,'FontSize',14,'TickDir','out','box','off','XTick',-180:90:180)
 %% 
-% Try changing things like the width of the channel (this_chan_width) and 
-% its center location (this_chan_center) - it's important to notice that the channel 
-% exists in a circular space, so that when it's centered at, say, 180 deg, it 
-% peaks again on the opposite side of the space. You can try plotting it in polar 
-% coordinates too:
+% Try changing things like the width of the channel (|this_chan_width|) 
+% and its center location (|this_chan_center|) - it's important to notice that 
+% the channel exists in a circular space, so that when it's centered at, say, 
+% 180 deg, it peaks again on the opposite side of the space. You can try plotting 
+% it in polar coordinates too:
 
 polarplot(deg2rad(angs),this_basis_fcn,'-','LineWidth',1.5);
 %% 
-% This basis function, or modeled neural information channel, tells us how 
-% we think some arbitrary population of neurons in the brain responds to a visual 
-% stimulus (spatial location). For today's purposes, we're treating channels as 
-% linear filters - the channel responds as a weighted sum of its 'input' (mask 
-% of stimulus location). Today we'll only be considering a single stimulus modeled 
-% as a point, so the shape of the channel response can be thought of as the response 
-% to each possible stimulus value around the screen.
+% This modeled neural information channel, tells us how we think some arbitrary 
+% population of neurons in the brain responds to a visual stimulus (spatial location). 
+% For today's purposes, we're treating channels as linear filters - the channel 
+% responds as a weighted sum of its 'input' (mask of stimulus location). Today 
+% we'll only be considering a single stimulus modeled as a point, so the shape 
+% of the channel response can be thought of as the response to each possible stimulus 
+% value around the screen.
 % 
 % But, we also don't think the brain cares only about a single position. 
 % So, we need our channels to tile the feature space - here, polar angle. So let's 
-% make a set of n_chans basis functions, which model the sensitivity of each channel:
+% make a set of |n_chans| basis functions, which model the sensitivity of each 
+% channel. We call this a _*basis set_*, because we assume that the observed activity 
+% in each electrode is a sum of the activity of these modeled channels. This is 
+% similar to the use of a series of sine waves as the basis set of a periodic 
+% signal in frequency-domain analyses.
 %%
 % can adjust these to see how differences in basis set change results below
 n_chans = 8;       % DEFAULT: 8
@@ -209,9 +228,11 @@ tmpylim = get(gca,'YLim'); ylim([0 1.2*tmpylim(2)]); clear tmpylim;
 % should respond on each trial of the experiment. (note that you don't actually 
 % need data for this step either!). We do this by computing a 'stimulus mask' 
 % - a vector describing the stimulus in feature space. Because our feature space 
-% is polar angle, the vector for each trial will be show the position of the stimulus 
-% in polar angle. Let's start with an example trial. Remember that 'c_all' contains 
-% the polar angle of each trial in its first column.
+% is polar angle, the vector for each trial will mark the position of the stimulus 
+% in polar angle. Let's start with an example trial. 
+% 
+% Remember that '|c_all|' contains the polar angle of each trial in its first 
+% column.
 % 
 % 
 %%
@@ -219,8 +240,13 @@ tmpylim = get(gca,'YLim'); ylim([0 1.2*tmpylim(2)]); clear tmpylim;
 c_all(c_all(:,1)>180,1) = c_all(c_all(:,1)>180,1)-360;
 which_trial = 1;
 c_all(which_trial,1)
+% initialize a blank mask
 this_mask = zeros(length(angs),1);
+
+% fill in the mask with a '1' at the feature value for this trial
 this_mask(angs==c_all(which_trial,1))=1;
+
+% plot the mask as an image
 figure;imagesc(angs,1,this_mask.'); 
 xlabel('Polar angle (\circ)');
 set(gca,'XTick',-180:90:180,'TickDir','out','YTick',[],'Box','off','FontSize',14);
@@ -232,7 +258,7 @@ title(sprintf('Stimulus mask: trial %i, %i \\circ',which_trial,c_all(which_trial
 % stimulus mask is important, though, as it is used to predict channel responses, 
 % and so changes in the choice of mask can (subtly) impact results. 
 
-% make stimulus mask for all trials
+% make stimulus mask for all trials: do the same thing within a loop over trials
 stim_mask = zeros(size(c_all,1),length(angs));
 for tt = 1:size(c_all,1)
     stim_mask(tt,angs==c_all(tt,1)) = 1;    
@@ -286,6 +312,7 @@ title('Predicted channel responses');
 ylabel('Trial');
 ylim([1 50]+[-.5 0.5]); % zoom in on a subset of trials
 set(gca,'TickDir','out','FontSize',14,'XTick',0:90:360);
+hold off;
 %% 
 % Try changing properties of the basis set and seeing how predicted channel 
 % responses change. You should notice that wider basis functions (channels) result 
@@ -309,9 +336,9 @@ set(gca,'TickDir','out','FontSize',14,'XTick',0:90:360);
 % 
 % Where B is n_trials x 1, C is n_trials x n_chans, and W is n_chans x 1.
 % 
-% To solve for W, we need to multiply $\mathit{\mathbf{B}}$ on the left by 
-% the inverse of $\mathit{\mathbf{C}}$. But $\mathit{\mathbf{C}}$isn't square! 
-% That's ok - it's common in matrix math to use the Moore-Penrose pseudo-inverse 
+% To solve for $\mathit{\mathbf{W}}$, we need to multiply $\mathit{\mathbf{B}}$ 
+% on the left by the inverse of $\mathit{\mathbf{C}}$. But $\mathit{\mathbf{C}}$isn't 
+% square! That's ok - it's common in matrix math to use the Moore-Penrose pseudo-inverse 
 % to perform matrix divisioin:
 % 
 % $$\hat{\mathit{\mathbf{W}}} ={\left({\mathit{\mathbf{C}}}^T \mathit{\mathbf{C}}\right)}^{-1} 
@@ -323,7 +350,7 @@ which_meas = 7; % which electrode or voxel we're looking at
 this_data = data_all(:,which_meas); % NOTE: we're including bad trials right now!!! (and no CV)
 this_w = inv( pred_chan_resp.' * pred_chan_resp ) * pred_chan_resp.' * this_data;
 %% 
-% However, for this to work, there are some cosntraints on $\mathit{\mathbf{C}}$: 
+% However, for this to work, there are some constraints on $\mathit{\mathbf{C}}$: 
 % 
 % * To compute a unique solution for $\mathit{\mathbf{W}}$, it's necessary for 
 % the predicted responses for each channel to be sufficiently different (as an 
@@ -334,9 +361,9 @@ this_w = inv( pred_chan_resp.' * pred_chan_resp ) * pred_chan_resp.' * this_data
 % this typically means there must be n_chans or more unique stimuli which result 
 % in unique predicted channel responses. 
 % * If both of these requirements are fulfilled, your $\mathit{\mathbf{C}}$matrix 
-% will be 'full-rank' - it will have rank equal to the number of columsn (the 
+% will be 'full-rank' - it will have rank equal to the number of columns (the 
 % rank of the matrix is the number of linearly-independent columns; if rank < 
-% n_cols, one column can be expressed as a combination of another, and so its 
+% n_cols, one column can be expressed as a combination of the others, and so its 
 % impossible to uniquely estimate a solution for $\mathit{\mathbf{W}}$)
 % 
 % Let's check our $\mathit{\mathbf{C}}$:
@@ -352,7 +379,7 @@ rank(pred_chan_resp)
 % predict channel responses based on the stimulus position bin (0, 45, 90, etc). 
 % This will result in only 8 unique predicted channel response patterns. Under 
 % what conditions would we expect to see a rank-deficient predicted channel response 
-% ($C$) matrix? 
+% ($\mathit{\mathbf{C}}$) matrix? 
 %%
 % need to make a new stimulus mask, and a temporary set of basis functions for testing this
 stim_mask_bin = zeros(size(c_all,1),length(angs));
@@ -397,7 +424,7 @@ rank(pred_chan_resp_bin)
 % and get the same answer as if we fit to all measurements at the same time. The 
 % encoding model's job is to describe activity in a measurement, and that requires 
 % no information about other measurements. So, we can fit the encoding model to 
-% all measurements very easily using the same linear algebra, just bigger data 
+% all measurements very easily using the same linear algebra, just a bigger data 
 % matrix:
 %%
 
@@ -419,7 +446,7 @@ this_w_all = inv( pred_chan_resp.' * pred_chan_resp ) * pred_chan_resp.' * data_
 % our predicted channel responses on each trial - $\mathit{\mathbf{C}}$- under 
 % our linear model:
 % 
-% $$\mathit{\mathbf{B}}=\mathit{\mathbf{C}}\hat{\mathit{\mathbf{W}}} \;$$
+% $$\mathit{\mathbf{B}}=\mathit{\mathbf{C}}\mathit{\mathbf{W}}\;$$
 % 
 % Our goal with this analysis is to recover the channel responses most likely 
 % to give rise to an observed activation pattern - ${\mathit{\mathbf{B}}}_{\mathrm{new}}$. 
@@ -427,9 +454,11 @@ this_w_all = inv( pred_chan_resp.' * pred_chan_resp ) * pred_chan_resp.' * data_
 % 
 % 
 % Because we know $\hat{\mathit{\mathbf{W}}}$and we know ${\mathit{\mathbf{B}}}_{\textrm{new}}$, 
-% we can just solve for ${\mathit{\mathbf{C}}}_{\mathbf{new}}$:$\begin{array}{l}\\{\mathit{\mathbf{C}}}_{\textrm{new}} 
-% ={{\mathit{\mathbf{B}}}_{\textrm{new}} {\hat{\mathit{\mathbf{W}}} }^T \left(\hat{\mathit{\mathbf{W}}} 
-% \;\hat{{\mathit{\mathbf{W}}}^{\mathit{\mathbf{T}}} } \right)\;}^{-1} \end{array}$
+% we can just solve for ${\mathit{\mathbf{C}}}_{\mathbf{new}}$:
+% 
+% $${\mathit{\mathbf{C}}}_{\textrm{new}} ={{\mathit{\mathbf{B}}}_{\textrm{new}} 
+% {\hat{\mathit{\mathbf{W}}} }^T \left(\hat{\mathit{\mathbf{W}}} \;\hat{{\mathit{\mathbf{W}}}^{\mathit{\mathbf{T}}} 
+% } \right)\;}^{-1}$$
 % 
 % Because of our linear assumptions this is an easy problem to solve - we 
 % just need to _*INVERT_* our _*ENCODING MODEL_* ($\hat{\mathit{\mathbf{W}}}$)! 
