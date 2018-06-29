@@ -16,6 +16,28 @@
 % # how to _invert_ that estimated _encoding model_ to solve for channel responses 
 % on a separate set of data
 % # how to think about these reconstructions
+% 
+% We're going to be using a beautiful dataset generously shared online (https://osf.io/bwzfj/) 
+% by Joshua Foster in the Awh/Vogel labs at University of Chicago (https://awhvogellab.com). 
+% This dataset comes from his 2016 _Journal of Neurophysiology_ paper (https://awhvogellab.files.wordpress.com/2015/08/foster-et-al-2016_jneurophysiol.pdf), 
+% in which they recorded EEG while  participants remembered single positions on 
+% the screen over a brief delay interval. Here's a schematic of the task (their 
+% *Fig. 1*):
+% 
+% 
+% 
+% We're going to use data from one participant (participant 10 in the online 
+% dataset) in Experiment 1. For this first tutorial, we're going to use a simplified 
+% dataset in which I've already extracted 'mean delay period activity' in each 
+% electrode on each trial (alpha band power). In the advanced tutorial, we'll 
+% also do this step ourselves. 
+% 
+% On each trial, the remembered position was drawn from a fully uniform distribution 
+% around a circle (no variation in eccentricity). The variable |c_all |tells us 
+% the polar angle of the remembered position on each trial, and the 'bin' (of 
+% 8) to which it belongs in columns 1, and 2, respectively.
+% 
+% First, let's take a look at the data.
 %% Load data
 % I've already minimally-processed this dataset so that we have a measured scalp 
 % activity pattern (alpha) on each trial. We'll cover ways to get this pattern 
@@ -24,7 +46,10 @@
 % point is that any signal can be a good candidate for this analysis, so long 
 % as some of the assumptions (discussed below) more or less hold. 
 %%
-load('data/EEG_basic.mat'); % or fMRI_basic.mat, if interested - the data is stored hte same, just different source!
+addpath util/ % this is where some helper functions live
+
+% load the data
+load('data/EEG_fundamentals.mat'); 
 whos
 %% 
 % in your workspace, you should have:
@@ -43,7 +68,7 @@ whos
 % 
 % This is all we need! we'll go over a few suggestions for how to process 
 % EEG data for best use with IEM methods a bit later.
-%% Build encoding model
+%% STEP 1: Build encoding model
 % The central assumption in the IEM analysis framework is that we can model 
 % the activity of an aggregate neural measurement (EEG electrode; fMRI voxel) 
 % as a linear combination of a discrete set of modeled 'information channels', 
@@ -78,7 +103,9 @@ whos
 % spanned that dimension, so such modeling is futile! We'll see below some of 
 % the mathematical/theoretical constraints on these models.  
 % 
-% Ok - back to modeling. 
+% Ok - back to modeling. Here's a rough schematic of what we're doing:
+% 
+% 
 % 
 % The IEM framework we're using in this tutorial is LINEAR: that means, for 
 % each electrode, we're making the direct assumption that
@@ -93,10 +120,15 @@ whos
 % as a function of polar angle, $f\left(\theta \right)$, such that the channel 
 % is maximally sensitive at a particular feature value (polar angle), and insensitive 
 % at far away feature values. A Gaussian could do the trick, but a Gaussian will 
-% never reach 'zero' sensitivity - so instead we use rectified sin/cos functions:
+% never reach 'zero' sensitivity - so instead we use cos functions raised to a 
+% power to make them a bit more gaussian-like:
 % 
-% $$f_0 \left(\theta \right)=\mathrm{cos}\left(\pi \frac{\left(\theta -\theta_0 
-% \right)}{2s}\right)\;\mathrm{where}\;|\theta |<s,0\;\mathrm{otherwise}$$
+% $$f_0 \left(\theta \right)=\cos {\left(\pi \frac{\left(\theta -\theta_0 
+% \right)}{2s}\right)}^7 \;\textrm{where}\;\left|\theta \right|<s,0\;\textrm{otherwise}$$
+% 
+% This lets us know exactly the position where the function reaches zero 
+% (s), which can be helpful. But, in practice, using a Gaussian (normalized to 
+% 1) is equally useful. 
 %%
 angs = linspace(-179,180,360);
 this_chan_center = 0; this_chan_width = 180; 
@@ -161,7 +193,7 @@ xlabel('Position (\circ)'); ylabel('Sum of basis set');
 title('Coverage');
 set(gca,'XTick',-180:90:180,'TickDir','out','Box','off','FontSize',14);
 tmpylim = get(gca,'YLim'); ylim([0 1.2*tmpylim(2)]); clear tmpylim;
-%% Use encoding model to predict channel responses
+%% STEP 2a: Use encoding model to predict channel responses
 % We now have our full encoding model in-hand (and try playing w/ those parameters 
 % and re-running analyses). Remember, we haven't touched data yet! This is purely 
 % an exercise in a computer at this point - we've built a model for how a neural 
@@ -180,6 +212,8 @@ tmpylim = get(gca,'YLim'); ylim([0 1.2*tmpylim(2)]); clear tmpylim;
 % is polar angle, the vector for each trial will be show the position of the stimulus 
 % in polar angle. Let's start with an example trial. Remember that 'c_all' contains 
 % the polar angle of each trial in its first column.
+% 
+% 
 %%
 % quick: let's fix c_all(:,1) to be from -180:180:
 c_all(c_all(:,1)>180,1) = c_all(c_all(:,1)>180,1)-360;
@@ -240,6 +274,7 @@ plot([1 1]*mod(c_all(which_trial),360),[0 1],'k--','LineWidth',2);
 title(sprintf('Trial %i',which_trial));
 xlabel('Position (\circ)'); ylabel('Predicted channel response');
 set(gca,'TickDir','out','FontSize',14,'XTick',0:90:360);
+hold off;
 
 subplot(1,2,2); hold on;
 imagesc(chan_centers,1:size(pred_chan_resp,1),pred_chan_resp);
@@ -257,7 +292,7 @@ set(gca,'TickDir','out','FontSize',14,'XTick',0:90:360);
 % in a 'wider' predicted channel response function - that is, more correlated 
 % predicted channel responses. That can cause some issues later, and we'll see 
 % that below. 
-%% Use predicted channel responses to fit encoding model
+%% STEP 2b: Use predicted channel responses to fit encoding model
 % As described above, the central premise of the IEM approach we're using here 
 % is that the activity of each signal (electrode) is a combination of the activity 
 % of a discrete set of modeled channels. For a single measurement $B$, that looks 
@@ -279,7 +314,8 @@ set(gca,'TickDir','out','FontSize',14,'XTick',0:90:360);
 % That's ok - it's common in matrix math to use the Moore-Penrose pseudo-inverse 
 % to perform matrix divisioin:
 % 
-% $$\hat{W} ={\left(C^T C\right)}^{-1} C^T \;B$$
+% $$\hat{\mathit{\mathbf{W}}} ={\left({\mathit{\mathbf{C}}}^T \mathit{\mathbf{C}}\right)}^{-1} 
+% {\mathit{\mathbf{C}}}^T \;\mathit{\mathbf{B}}$$
 % 
 % In  MATLAB:
 %%
@@ -287,29 +323,28 @@ which_meas = 7; % which electrode or voxel we're looking at
 this_data = data_all(:,which_meas); % NOTE: we're including bad trials right now!!! (and no CV)
 this_w = inv( pred_chan_resp.' * pred_chan_resp ) * pred_chan_resp.' * this_data;
 %% 
-% However, for this to work, there are some cosntraints on $C$: 
+% However, for this to work, there are some cosntraints on $\mathit{\mathbf{C}}$: 
 % 
-% * To compute a unique solution for $W$, it's necessary for the predicted responses 
-% for each channel to be sufficiently different (as an extreme example, if the 
-% predicted responses for two channels were always identical, it's impossible 
-% to decide which weight to assign each of them). When might this happen?
+% * To compute a unique solution for $\mathit{\mathbf{W}}$, it's necessary for 
+% the predicted responses for each channel to be sufficiently different (as an 
+% extreme example, if the predicted responses for two channels were always identical, 
+% it's impossible to decide which weight to assign each of them). When might this 
+% happen?
 % * There must be at least n_chans unique sets of predicted channel responses; 
 % this typically means there must be n_chans or more unique stimuli which result 
 % in unique predicted channel responses. 
-% * If both of these requirements are fulfilled, your $C$matrix will be 'full-rank' 
-% - it will have rank equal to the number of columsn (the rank of the matrix is 
-% the number of linearly-independent columns; if rank < n_cols, one column can 
-% be expressed as a combination of another, and so its impossible to uniquely 
-% estimate a solution for $W$)
+% * If both of these requirements are fulfilled, your $\mathit{\mathbf{C}}$matrix 
+% will be 'full-rank' - it will have rank equal to the number of columsn (the 
+% rank of the matrix is the number of linearly-independent columns; if rank < 
+% n_cols, one column can be expressed as a combination of another, and so its 
+% impossible to uniquely estimate a solution for $\mathit{\mathbf{W}}$)
 % 
-% Let's check our C:
+% Let's check our $\mathit{\mathbf{C}}$:
 
 rank(pred_chan_resp)
 %% 
-% (We'd have seen errors or warnings in MATLAB if our C wasn't full-rank 
-% - but this is _always_ something important to keep track of!)
-% 
-%  
+% (We'd have seen errors or warnings in MATLAB if our $\mathit{\mathbf{C}}$wasn't 
+% full-rank - but this is _always_ something important to keep track of!)
 %% Brief aside: restrictions on encoding models
 % Because this experiment involved a full uniform distribution of positions, 
 % it's actually pretty challenging to adjust the basis set to parameters that 
@@ -369,51 +404,12 @@ rank(pred_chan_resp_bin)
 % fit to data_all, not this_data
 this_w_all = inv( pred_chan_resp.' * pred_chan_resp ) * pred_chan_resp.' * data_all;
 
-% MATLAB suggests we switch to backslash notation, which gives an identical result:
-this_w_all_backslash = pred_chan_resp \ data_all;
+% NOTE: MATLAB suggests we switch to backslash notation, which gives an identical result:
+% this_w_all_backslash = pred_chan_resp \ data_all;
 
-% check that these give the same result (W is now n_chans x n_measurements)
-figure;
-subplot(3,1,1);
-imagesc(1:size(data_all,2),chan_centers,this_w_all); axis ij;
-title('Full notation');
-set(gca,'TickDir','out','YTick',0:90:360,'Box','off','FontSize',14);
-if size(this_w_all,2)==20 % if EEG dataset, label w/ electrode names
-    set(gca,'XTick',1:size(this_w_all,2),'XTickLabel',chan_labels);
-end
-
-subplot(3,1,2);
-imagesc(1:size(data_all,2),chan_centers,this_w_all_backslash); axis ij;
-title('Backslash');
-set(gca,'TickDir','out','YTick',0:90:360,'Box','off','FontSize',14);
-if size(this_w_all,2)==20
-    set(gca,'XTick',1:size(this_w_all,2),'XTickLabel',chan_labels);
-end
-
-
-subplot(3,1,3);
-imagesc(1:size(data_all,2),chan_centers,this_w_all-this_w_all_backslash); axis ij;
-title('Difference');
-xlabel('Measurement');
-ylabel('Channel center (\circ)');
-set(gca,'TickDir','out','YTick',0:90:360,'Box','off','FontSize',14);
-if size(this_w_all,2)==20
-    set(gca,'XTick',1:size(this_w_all,2),'XTickLabel',chan_labels);
-end
-
-
-match_clim(get(gcf,'Children'));
 %% 
-% What happens to the fit weight matrix as you vary channel properties? 
-% # of channels, width, etc? If we _really_ cared about the _encoding_ aspect 
-% of the analysis, we'd add some additional constraints to model-fitting, including 
-% regularization constraints to minimize effect of channel overlap, etc. But, 
-% because the goal is to _invert_ the model to reconstruct channel responses, 
-% we forego this for now. See Sprague & Serences, 2013 and Vo et al 2017 for examples 
-% of using regularization to compute voxel-level spatial sensitivity profiles 
-% with a linear channel model and regularization. That's all we'll address about 
-% this for now.
-%% Reconstructing channel responses
+% 
+%% STEP 3: Reconstructing channel responses
 % So far, we've learned how to design an encoding model, and how to fit it to 
 % a set of data. This encoding model describes how a modeled set of neural information 
 % channels contribute to each measurement. 
@@ -427,18 +423,18 @@ match_clim(get(gcf,'Children'));
 % 
 % Our goal with this analysis is to recover the channel responses most likely 
 % to give rise to an observed activation pattern - ${\mathit{\mathbf{B}}}_{\mathrm{new}}$. 
+% 
+% 
+% 
 % Because we know $\hat{\mathit{\mathbf{W}}}$and we know ${\mathit{\mathbf{B}}}_{\textrm{new}}$, 
-% we can just solve for ${\mathit{\mathbf{C}}}_{\mathbf{new}}$:
+% we can just solve for ${\mathit{\mathbf{C}}}_{\mathbf{new}}$:$\begin{array}{l}\\{\mathit{\mathbf{C}}}_{\textrm{new}} 
+% ={{\mathit{\mathbf{B}}}_{\textrm{new}} {\hat{\mathit{\mathbf{W}}} }^T \left(\hat{\mathit{\mathbf{W}}} 
+% \;\hat{{\mathit{\mathbf{W}}}^{\mathit{\mathbf{T}}} } \right)\;}^{-1} \end{array}$
 % 
-% $$\begin{array}{l}{\mathit{\mathbf{C}}}_{\mathrm{new}} ={\left({\hat{\mathit{\mathbf{W}}} 
-% }^T \hat{\mathit{\mathbf{W}}} \right)}^{-1} {\hat{\mathit{\mathbf{W}}} }^T {\mathit{\mathbf{B}}}_{\mathrm{new}} 
-% \\{\mathit{\mathbf{C}}}_{\mathrm{new}} ={{\mathit{\mathbf{B}}}_{\mathrm{new}} 
-% {\hat{\mathit{\mathbf{W}}} }^T \left(\hat{\mathit{\mathbf{W}}} \;\hat{{\mathit{\mathbf{W}}}^{\mathit{\mathbf{T}}} 
-% } \right)\;}^{-1} \end{array}$$
-% 
-% Because of our linear assumptions this is an easy problem to solve! Let's 
-% look at an example, we'll take ~50% of trials, randomly chosen, as data used 
-% to estimate the model & use the remaining data to reconstruct:
+% Because of our linear assumptions this is an easy problem to solve - we 
+% just need to _*INVERT_* our _*ENCODING MODEL_* ($\hat{\mathit{\mathbf{W}}}$)! 
+% Let's look at an example, we'll take ~50% of trials, randomly chosen, as data 
+% used to estimate the model & use the remaining data to reconstruct:
 %%
 
 rng(3728291); % so we get the same answer everytime
@@ -460,6 +456,7 @@ this_W = trnX \ trn;  % estimate W
 % use W to compute channel responses:
 tst = data_all(tstidx,:);
 
+% this is where we *invert* the encoding model (IEM)! it's where the name comes from!
 this_chan_resp = tst * this_W.' * inv(this_W * this_W.'); % estimated channel responses on each trial!
 % above is equivalently written as: this_chan_resp = tst/this_W - we'll use this format later on!
 
@@ -488,6 +485,7 @@ xlabel('Channel center (\circ)');
 ylabel('Channel response (a.u.)');
 title('Channel response functions: binned & averaged')
 set(gca,'TickDir','out','FontSize',14,'XTick',0:90:360);
+hold off;
 %% 
 % Ok - let's recap what we just did. 
 % 
@@ -521,16 +519,22 @@ set(gca,'TickDir','out','FontSize',14,'XTick',0:90:360);
 % * In order for $\hat{\mathit{\mathbf{W}}}$to be pseudo-invertible, you must 
 % have more measurement dimensions (here, electrodes) than modeled channels. Try 
 % changing the number/width of channels above to unsolvable regimes and see what 
-% happens (MATLAB will often let you do it! but don't do that!)
+% happens (MATLAB will often let you do it! but don't do that!). You could equivalently 
+% try using fewer than 8 measurement dimensions (electrodes).
 % * In order for the reconstruction to be valid, the data used to estimate the 
 % model must be _entirely independent_ of the data used for reconstructing channel 
 % responses. Otherwise, you're just showing that you've overfit your data, and 
 % your conclusions aren't valid. 
+% * Because this is a _multivariate_ analysis, the result will change if you 
+% add or remove a measurement dimension (voxel/electrode) in $\hat{\mathit{\mathbf{W}}}$ 
+% before inverting the model - try that!
 %% Aligning all trials
 % As plotted above, reconstructed channel response functions from each trial 
 % show remarkably different profiles depending on the represented feature value. 
 % This means that if we were to average all trials, as-is, we'd be looking at 
-% basically nothing:
+% basically nothing. Any 'peak' in this function mostly suggests that representations 
+% of some locations are either 'stronger' or over-represented in the dataset. 
+% We'll come back to that in the advanced tutorial. 
 %%
 figure;
 plot(chan_centers,mean(this_chan_resp,1),'-','LineWidth',2);
@@ -540,14 +544,12 @@ title('Average of all testing trials (no shifting)');
 set(gca,'XTick',0:90:360,'FontSize',14,'TickDir','out','Box','off')
 ylim([-0.3 1.2]); % make our y-axis match, approximately, that above
 %% 
-% Any structure we see here is more or less an accident (see the advanced 
-% tutorial for a few possible causes and example code for addressing them). 
+% Because we know the stimulus value on each trial, so we can manipulate 
+% our reconstructions to align all trials to the same position. 
 % 
-% But, all is not lost! We know the stimulus value on each trial, so we can 
-% manipulate our reconstructions to align all trials to the same position. Here, 
-% I'm going to illustrate this procedure based on the binned position information, 
-% but see the advanced tutorial for an example of how to do this using the 'raw' 
-% feature values. 
+% Here, I'm going to illustrate this procedure based on the binned position 
+% information, but see the advanced tutorial for an example of how to do this 
+% using the 'raw' feature values. 
 % 
 % _*IMPORTANT:_* the below analysis will _only_ work with 8 modeled channels 
 % due to the way the data is binned. You can experiment with changing channel 
@@ -600,20 +602,49 @@ if n_chans == 8
     title('Average of all testing trials (aligned)')
     ylim([-0.3 1.2])
     set(gca,'XTick',-180:90:180,'FontSize',14,'TickDir','out','Box','off')
+    hold off
 else
     figure;
     text(0.5,0.5,'USE 8 CHANNELS!!!!','FontSize',18,'FontWeight','bold','HorizontalAlignment','center','VerticalAlignment','middle','Color','r')
     axis off;
 end
 %% 
+% Because we know something about our _modeled feature space_ (the preferred 
+% position of each information channel, because we built them in STEP 1), we can 
+% use that knowledge to manipulate that feature space - in this case, align channel 
+% response functions based on the channel position and the stimulus value on that 
+% trial. Think about it - that's _really_ cool! 
+% 
+% The analysis framework boils down to projecting activity from a measurement 
+% space - one number for every electrode - into a simplified 'information space' 
+% - one number for each experimenter-modeled information channel. There are other 
+% cases where we can do this for simplified stimuli (e.g., averaging contralateral 
+% signals in SSVEP or alpha for stimuli presented on left/right across different 
+% trials), but it's much more complicated to imagine how you would average trials 
+% with totally random stimulus values. The IEM framework lets us do that! 
+% 
+% I think about the aligning & averaging step of the IEM the same way I think 
+% about ERPs: you have a complicated signal that's a combination of lots of stuff 
+% (ongoing oscillations, tiny signals of interest, blinks, etc). By cleaning the 
+% data a bit and averaging trials based on something you know - the timepoint 
+% at which a significant event in the experiment occurred - you see the consistent 
+% features of the signal locked to those events. The same is happening here - 
+% by projecting the scalp activity pattern into this information space and aligning 
+% it based on a known stimulus feature, we're getting rid of any changes in activity 
+% that aren't reliably related to changes in the stimulus feature. Sure, they'll 
+% also be projected into the activity space, but if you sample the stimulus space 
+% uniformly, the noise will likely be washed out when aligning and averaging trials 
+% from different stimulus values. 
+% 
+% This is, in my opinion, the key reason the IEM method is particularly powerful. 
+% I encourage you to play with parameters in these tutorials, and simulate your 
+% own datasets to test the extent to which you buy this interpretation. I can 
+% say that, in my experience, you have a lot of power to see really interesting 
+% effects of cognitive manipulations on neural representations of stimulus features.
+%% On to the advanced tutorial!
 % And there you have it! This is the essentials of performing an IEM analysis 
 % on a simplified dataset (one measurement per trial). After finishing this tutorial, 
 % you have all the skills necessary to move on to a meatier dataset - one with 
 % 250 samples per second on each trial. 
-% 
-% Here, we didn't actually reconstruct each and every trial - we only split 
-% the data into two sets. You can try, as an exercise, running a full cross-validation 
-% procedure where you update the training set on each iteration to leave out a 
-% different set of trials for reconstruction. 
 % 
 %
