@@ -201,6 +201,7 @@ chan_centers = linspace(360/n_chan,360,n_chan);
 % evaluate basis set at these
 angs = linspace(-179,180,360);
 
+% TODO: replace!!!!
 myb_orig = build_basis_polar_mat(angs,chan_centers);
 
 figure; plot(angs,myb_orig,'LineWidth',1.5);
