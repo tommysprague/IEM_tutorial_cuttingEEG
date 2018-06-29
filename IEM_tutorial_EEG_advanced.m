@@ -1,7 +1,49 @@
-% IEM_tutorial_EEG.m
+% IEM_tutorial_EEG_advanced.m
 %
-% scaffold for EEG IEM tutorial (assuming we've already walked through
-% basics of IEM method w/ simpler fMRI data)
+% Now that you've spent some time learning the basics of how to run an IEM
+% analysis on a small set of data, let's explore some more advanced aspects
+% of the analysis you'll need to understand if you want to run an IEM-based
+% experiment yourself.
+%
+% This tutorial will cover:
+%
+% - kinds of EEG data to use: focus on time course of alpha power
+%
+% - run-wise cross-validation: compute reconstructions for each trial by
+%   looping over runs (leave-one-run-out). We'll also discuss other
+%   cross-validation schemes. 
+%
+% - balancing trials within CV folds - due to artifact rejection, etc, you
+%   sometimes end up with lopsided #'s of trials over feature space. I'll
+%   show an example for how to address this, and we'll see how much it
+%   impacts the data quality
+%
+% - Converting channel responses into 'reconstructions' - we'll weight the
+%   channel sensitivity profile for each channel by its estimated
+%   activation. This is a 'smoothed' version of the channel response
+%   function (CRF), and can be 'exactly' coregistered across trials (not
+%   just based on bin). This will also let us more fully explore how
+%   different basis sets impact our analyses
+%
+% - Quantifying reconstructions based on their 'fidelity' (Sprague et al,
+%   2016) and/or their 'slope' (Foster et al, 2016), the two most
+%   commonly-used metrics right now. We'll also discuss when it's
+%   appropriate to do curve-fitting to quantify 'amplitude' and 'size'
+%
+% - Computing reconstructions over time to uncover neural representations
+%   at the ~ms timescale. We'll go over a few ways to do this, and discuss
+%   how to compare results from each method. 
+%
+% - Understanding why it's important to compare reconstructions across
+%   conditions (or timepoints) computed using a 'fixed' encoding model
+%   (Sprague et al, 2018)
+%
+% - Evaluating the 'significance' of reconstructions: we'll generate a null
+%   distribution of reconstructions against which we'll compare our actual
+%   data. This is an important step to ensure any structure in the data is
+%   not due to chance. We'll discuss these procedures at the group level as
+%   well.
+
 
 % where is the EEG data saved?
 %eeg_root = '/Volumes/data/FosterEtAl2016/Data';
@@ -233,8 +275,6 @@ set(gca,'TickDir','out','XTick',0:90:360);
 % leave-one-run-out cross-validation (to start with). We'll also explore a
 % couple of other options for training/testing IEMs (including that used by
 % Foster et al, 2016)
-
-% [TODO; doIEM?]
 
 chan_resp = nan(size(X_all)); % fill this in with estimated channel responses
 
