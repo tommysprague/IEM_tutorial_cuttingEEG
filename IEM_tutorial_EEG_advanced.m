@@ -642,7 +642,7 @@ for pp = 1:length(pu)
 end
 title('Aligned reconstructions (binned)');
 
-% now let's focus on one bin (bin 2)
+% now let's focus on one bin (which_bin)
 ax2 = subplot(1,2,2,polaraxes);  hold on; which_bin = 6;
 title(sprintf('Example bin (%i)',which_bin));
 
@@ -701,18 +701,7 @@ text(-pi/2,2,sprintf('Fidelity = %.03f',this_fidelity),'HorizontalAlignment','ce
 % fidelity on each trial then average, or do you need to compute fidelity
 % on the average?
 
-
-
-% just for fun, let's plot the vector averages of all trials color coded by
-% their bin:
-% all_mux = mean(recons_raw.*cosd(angs),2); all_muy = mean(recons_raw.*sind(angs),2);
-% [all_muth,all_mur] = cart2pol(all_mux,all_muy);
-% figure; polaraxes; hold on;
-% for pp = 1:length(pu)
-%     thisidx = ~excl_all & c_all(:,2)==pu(pp);
-%     polarplot(all_muth(thisidx),all_mur(thisidx),'.','Color',pos_colors(pp,:));
-% end
-
+%% simplifying the computation of 'fidelity'
 % So - we know how to project the vector average of the reconstruction onto
 % the unit vector in the 'correct' direction, which lets us quantify
 % fidelity. But, we've also computed 'aligned' reconstructions (indeed, we
@@ -761,7 +750,54 @@ set(gca,'TickDir','out','XTick',0:90:360);
 
 %% Quantifying reconstructions: 'slope' (Foster et al, 2016)
 
-% TODO
+% It's also common in the literature to just flip reconstructions (or, more
+% commonly, channel response functions) over on themselves about the
+% midpoint, average, and compute the slope of the channel resp vs channel
+% center best-fit line. 
+%
+% In Foster et al, 2016 (and many subsequent publications), they flip the
+% channel response values (chan_resp here; n_chans long). But, let's see if
+% we can get fancy and do this with the aligned reconstructions
+% (recons_aligned) instead. 
+%
+% We'll use only points in angs that have values on both sides of center
+% (so -179:-1 and 1:179), and we'll flip the + side of angs (where the
+% slope is negative) so that we overlay two up-going curves:
+
+ang_stay = angs>=-179 & angs <= -1;
+ang_flip = angs>=1 & angs <= 179;
+
+% make a variable that's n_trials x length(ang_stay) x 2 and insert the
+% aligned reconstruction into it
+tmp_slope = nan(size(recons_aligned,1),sum(ang_stay),2);
+
+tmp_slope(:,:,1) = recons_aligned(:,ang_stay);
+tmp_slope(:,:,2) = fliplr(recons_aligned(:,ang_flip)); % flip these left/right
+
+% look at the slope for all trials
+figure;
+hold on;
+plot(angs(ang_stay),mean(tmp_slope(~excl_all,:,1),1),'-','LineWidth',1.5);
+plot(angs(ang_stay),mean(tmp_slope(~excl_all,:,2),1),'-','LineWidth',1.5);
+
+mu_slope = mean(tmp_slope,3); % average both flanks
+plot(angs(ang_stay),mean(mu_slope(~excl_all,:),1),'k-','LineWidth',2);
+
+% and compute the slope of best-fit line to the average
+F = polyfit(angs(ang_stay),mean(mu_slope(~excl_all,:),1),1); % linear fit
+plot(angs(ang_stay),polyval(F,angs(ang_stay)),'k--','LineWidth',2);
+
+legend({'Left flank','Right flank (flipped)','Average','Best-fit line'},'Location','best');
+
+set(gca,'FontSize',14,'Box','off','TickDir','out','XTick',-180:45:0);
+xlabel('Relative position (\circ)');
+ylabel('Reconstruction activation (a.u.)');
+title('Computing slope (mean across trials)');
+text(-160,0.8,sprintf('Slope = %0.03f/\\circ',F(1)));
+
+
+% if you want slopes for each trial individually, need to loop over trials
+
 
 
 %% Quantifying reconstructions: curve fits (Ester et al, 2013)
@@ -990,7 +1026,7 @@ title('Fidelity through time (fixed training)');
 xlim(recon_tpt_range);
 set(gca,'TickDir','out');
 
-% for completeness, let's compare directly:
+%% Comparing reconstructions from 'dynamic' vs 'fixed' encoding models
 figure;
 hold on;
 plot(tpts_recon,mean(fidelity_t(~excl_all,:),1),'-','LineWidth',2);
@@ -1024,7 +1060,7 @@ title('Comparing fidelity across IEM training regimes');
 % of the analysis. But, it's quite easy to extend this approach to any of
 % the temporal analyses we discussed (just computationally-intensive). 
 
-niter = 500; % how many times do we shuffle?
+niter = 100; % how many times do we shuffle?
 
 % seed the random number generator
 rng(2783829); % so we get the same result each time!
