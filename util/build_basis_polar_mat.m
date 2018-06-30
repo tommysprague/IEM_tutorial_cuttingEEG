@@ -1,4 +1,40 @@
 function bb = build_basis_polar_mat(eval_at,chan_th,chan_size,chan_pow )
+% build_basis_polar_mat creates a basis set of selective 1-d information
+% channels in a 360-deg space, computed along the points in EVAL_AT, with
+% channels centered at CHAN_TH, with size given by CHAN_SIZE, and raised to
+% the power indicated by CHAN_POW
+%
+% bb = build_basis_polar_mat(eval_at,chan_th) computes a basis set with the
+% default size (180 deg) and the default power (defined by # of basis
+% functions per Freeman & Adelson, 1992).
+%
+% bb = build_basis_polar_mat(eval_at,chan_th,chan_size) uses the size
+% specified by chan_size (one number; positive; deg) for all channels
+%
+% bb = build_basis_polar_mat(eval_at,chan_th,[],chan_pow) uses chan_pow
+% instead of the Freeman & Adelson recommendation. This will alter the
+% shape of the channel profile slightly, and can decrease its FWHM.
+%
+% CHAN_WIDTH adjusts a 'size' constant - the distance from the channel
+% center (in polar angle deg) at which the filter reaches zero. This will
+% scale linearly with FWHM, but the ratio will depend on the power. 
+%
+% the basis set is returned as a matrix, with each column containing one
+% basis function/modeled information channel. The resulting dimensions are
+% length(eval_at) x length(chan_th)
+%
+% Example:
+% my_angs = linspace(-179,180,360);
+% my_chan_centers = linspace(360/8,360,8);
+% my_chan_width = 180;
+%
+% my_basis = build_basis_polar_mat(my_angs,my_chan_centers,my_chan_width);
+% figure; plot(my_angs,my_basis,'-','LineWidth',1.5);
+% xlabel('Position (\circ)'); ylabel('Channel sensitivity');
+%
+% Tommy Sprague (tommy.sprague@gmail.com)
+
+
 % adapted from build_basis_polar - this does everything at once, useful for
 % generating a set of transformed/rotated basis functions
 

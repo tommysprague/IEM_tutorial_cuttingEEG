@@ -74,12 +74,17 @@ eeg_sampling_rate = 250; % recorded eeg data at 250 Hz
 
 
 %% first - load data
-%load(sprintf('%s/%02.f_WM_EEG.mat',eeg_root,subj_num));
 addpath util/;
 load data/EEG_advanced.mat;
 
-% <document data>
-
+% in your workspace, you'll have:
+% - dt_all: full timeseries for each electrode on each trial (n_trials x
+%   n_electrodes x n_tpts)
+% - c_all:  condition label for each trial. first column is the polar angle remembered on that trial, in degrees (Cartesian coords, 45 = upper right); second column is the position bin (1-8; beginning at 0 deg and moving CCW, so bin 2 is centered at 45, 3 at 90, etc); n_trials x 2
+% - excl_all: logical vector, contains 1 for each trial that was marked by Foster et al (2016) for exclusion based on artifacts, etc; n_trials x 1
+% - r_all: label for each trial as to which run it came from; n_trials x 1
+% - chan_labels: cell array of strings labeling each electrode; n_electrodes+2 x 1 cell array (we don't include EOG channels in data here)
+% - tpts: time at each sample in ms (size(dt_all,3) x 1)
 
 % let's look at the 'raw' data - pick a channel and sort trials by
 % position bin and plot ERP; look at mean delay period potential vs
@@ -272,7 +277,7 @@ xlabel('Polar angle (\circ)');ylabel('Channel sensitivity'); title('Basis set (i
 xlim([-180 180]);set(gca,'XTick',-180:90:180,'TickDir','out','Box','off','FontSize',14);
 
 
-%% Step 2: Use basis set to predict channel responses
+%% Step 2a: Use basis set to predict channel responses
 
 % just like in the 'fundamentals' tutorial, now we need to use our
 % condition labels on each trial to predict channel responses, given the
@@ -339,7 +344,7 @@ title(sprintf('All trials (rank = %i)',rank(X_all)));
 set(gca,'TickDir','out','XTick',0:90:360,'FontSize',14);
 
 
-%% Train/test IEM (full delay period) - leave-one-run-out
+%% Step 2b & 3: Train/test IEM (full delay period) - leave-one-run-out
 % 
 % With our encoding model and predicted channel responses in hand, now we
 % can estimate channel weights and reconstruct WM representations from each
@@ -351,7 +356,7 @@ set(gca,'TickDir','out','XTick',0:90:360,'FontSize',14);
 % a 'test' set and use the remaining data as a test set. For simplicity,
 % we'll use the run number as the partition. 
 %
-%Since we only have one task here, we'll also perform
+% Since we only have one task here, we'll also perform
 % leave-one-run-out cross-validation (to start with). We'll also explore a
 % couple of other options for training/testing IEMs
 
@@ -537,13 +542,13 @@ for rr = 1:length(cvu)
     binned_X      = cellfun(@(xx) xx(1:incl_trials,:), binned_X,'UniformOutput',false);
     trndata = vertcat(binned_trials{:});
     trnX    = vertcat(binned_X{:});
-    
-    % loop over position bins, find trnidx trials within this bin, and add
-    % the first incl_trials to trndata
+
     tstdata = delay_data(tstidx,:);
     
-    w_hat = trnX \ trndata; % estimate channel weights
+    % estimate channel weights
+    w_hat = trnX \ trndata; 
     
+    % invert model to estimate channel responses
     chan_resp_balanced(tstidx,:) = tstdata/w_hat;
     
     clear w_hat trndata trnX tstdata trnidx tstidx;
@@ -800,16 +805,6 @@ text(-160,0.8,sprintf('Slope = %0.03f/\\circ',F(1)));
 
 
 
-%% Quantifying reconstructions: curve fits (Ester et al, 2013)
-
-% this typically works best for quantifying averages across trials, so
-% we'll just do that here. For shuffling-type analyses like below, these
-% fits can often be nonsensical, so it's also typically not the best way to
-% establish data consistency/reliability. Instead, to get error bars of fit
-% metrics, sometimes it can be good to bootstrap over trials. 
-
-
-
 %% Reconstructions through time
 
 % This is probably what you've all been waiting for! We're here because we
@@ -843,7 +838,7 @@ avgwindow = 1000/eeg_sampling_rate; % average samples within this/2 on each side
 % make a variable to fill with reconstructions at each timepoint
 chan_resp_t = nan(size(c_all,1),n_chan,length(tptidx)); % trial x channel x tpts
 
-tpts_recon = tpts(tptidx); % when plotting reconstruciton timecourses, use these
+tpts_recon = tpts(tptidx); % when plotting reconstruction timecourses, use these
 
 for tt = 1:length(tptidx)
     
@@ -907,10 +902,31 @@ title('Fidelity through time (matched training)');
 xlim(recon_tpt_range);
 set(gca,'TickDir','out');
 
-
+%% 3d surface plot
 % and just because it's fun, a surface version
-% TODO (from Josh's scripts)
-
+% (I adapted this directly from Josh's scripts)
+figure;
+surf(tpts_recon,angs,squeeze(mean(recons_aligned_t(~excl_all,:,:),1)),'EdgeColor','none','LineStyle','none','FaceLighting','phong')
+shading interp
+h=findobj('type','patch');
+set(h,'linewidth',2)
+hold on
+set(gca, 'box','off')
+set(gca,'color','none')
+set(gca,'LineWidth',2,'TickDir','out');
+set(gca,'FontSize',14)
+view(3)
+%axis([x(1) x(end) tpts_recon(1) em.time(end) lim]);
+set(gca,'YTick',[-180:90:180])
+set(gca,'XTick',[-500:500:2000])
+title('Total Power','FontSize',16)
+ylabel('Channel Offset'); 
+xlabel('Time (ms)'); 
+set(get(gca,'xlabel'),'FontSize',14,'FontWeight','bold')
+set(get(gca,'ylabel'),'FontSize',14,'FontWeight','bold')
+zlabel({'Channel'; 'Response'}); set(get(gca,'zlabel'),'FontSize',14,'FontWeight','bold')
+%set(get(gca,'ylabel'),'rotation',90); %where angle is in degrees
+grid off
 
 
 
@@ -922,7 +938,7 @@ set(gca,'TickDir','out');
 % compared to another, what does that mean? 
 %
 % It's hard to tell in this case. The reason is, the encoding model itself
-% changes at each point in time, and so the space to whcih the IEM projects
+% changes at each point in time, and so the space to which the IEM projects
 % the electrode-space data is different! This tells us that there is
 % information at each point in time, but does not say anything about the
 % stability of this information - we cannot directly compare
@@ -1042,9 +1058,7 @@ title('Comparing fidelity across IEM training regimes');
 %% are these results by chance? shuffle trial labels at training
 %
 % to compute 'quality' of reconstructions on each iteration, we'll just use
-% fidelity metric above (though slope, etc, also usable). Because we wrote
-% functions to give us reconstruction metrics, we can just swap them in/out
-% as we like! 
+% fidelity metric above (though slope, etc, also usable). 
 %
 % How do we know the results we've shown above are 'real'? Especially for a
 % single subject! A common way of doing this is removing structure from the
@@ -1098,9 +1112,6 @@ for ii = 1:niter
 end
 
 % now compute reconstructions, align
-
-
-%tmp_raw = chan_resp * myb_orig.';
 recons_aligned_shuf = nan(size(tmp_raw));
 
 % we want to adjust so that each position is set to 0
@@ -1121,6 +1132,4 @@ xlabel('Fidelity');
 title(sprintf('Comparing true fidelity to shuffled (p = %0.03f)',p));
 
 
-
-%% stable codes? how does info evolve over time in fixed; dynamic model
 
